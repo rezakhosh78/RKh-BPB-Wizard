@@ -1,0 +1,190 @@
+```yaml
+name: Build and Release RKh BPB Wizard v1.11
+
+on:
+  push:
+    tags:
+      - "1.11"
+      - "v1.11"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: RKh BPB Wizard
+  VERSION: "1.11"
+  RELEASE_NAME: RKh BPB Wizard v1.11
+  ZIP_NAME: RKh_BPB_Wizard_v1.11.zip
+  PACKAGE_DIR: RKh_BPB_Wizard_v1.11
+
+jobs:
+  build-release:
+    name: Build ZIP and Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: ✅ Check main Python file
+        run: |
+          if [ ! -f "rkh_bpb_wizard.py" ]; then
+            echo "❌ rkh_bpb_wizard.py not found!"
+            exit 1
+          fi
+
+          python -m py_compile rkh_bpb_wizard.py
+          echo "✅ Python compile check passed."
+
+      - name: 🧹 Prepare clean package
+        run: |
+          rm -rf dist
+          mkdir -p "dist/${PACKAGE_DIR}"
+
+          python - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+
+          root = Path(".").resolve()
+          out = root / "dist" / "RKh_BPB_Wizard_v1.11"
+
+          ignore_dirs = {
+              ".git",
+              ".github",
+              "dist",
+              "__pycache__",
+              ".pytest_cache",
+              ".venv",
+              "venv",
+              "env",
+          }
+
+          ignore_files = {
+              ".DS_Store",
+              "Thumbs.db",
+          }
+
+          for item in root.iterdir():
+              if item.name in ignore_dirs or item.name in ignore_files:
+                  continue
+
+              target = out / item.name
+
+              if item.is_dir():
+                  shutil.copytree(
+                      item,
+                      target,
+                      ignore=shutil.ignore_patterns(
+                          "__pycache__",
+                          "*.pyc",
+                          ".DS_Store",
+                          "Thumbs.db",
+                      ),
+                  )
+              else:
+                  shutil.copy2(item, target)
+
+          profiles = out / "rkh_bpb_profiles.json"
+          profiles.write_text(
+              json.dumps({"profiles": [], "deployments": []}, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+
+          print("✅ Clean package prepared.")
+          PY
+
+      - name: 📦 Create ZIP file
+        run: |
+          cd dist
+
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          package_dir = Path("RKh_BPB_Wizard_v1.11")
+          zip_name = Path("RKh_BPB_Wizard_v1.11.zip")
+
+          if zip_name.exists():
+              zip_name.unlink()
+
+          with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as z:
+              for path in package_dir.rglob("*"):
+                  if path.is_file():
+                      z.write(path, path.as_posix())
+
+          print(f"✅ ZIP created: {zip_name}")
+          PY
+
+      - name: ⬆️ Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RKh_BPB_Wizard_v1.11
+          path: dist/RKh_BPB_Wizard_v1.11.zip
+
+      - name: 🚀 Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || '1.11' }}
+          name: RKh BPB Wizard v1.11
+          files: dist/RKh_BPB_Wizard_v1.11.zip
+          body: |
+            # RKh BPB Wizard v1.11
+
+            ## 🚀 امکانات اصلی
+
+            👤 ساخت و مدیریت چند پروفایل Cloudflare
+
+            🔐 پشتیبانی از دو روش ورود:
+
+            - API Token
+            - Global API Key + Email
+
+            ☁️ ساخت Cloudflare Worker از داخل پنل
+
+            🗃️ ساخت KV Namespace و اتصال آن به Worker با binding دقیق `kv`
+
+            🎲 ساخت رندوم مقدارهای لازم در هر Deploy:
+
+            - UUID
+            - TR_PASS
+            - Panel Password
+            - SUB_PATH
+
+            🧠 پیشنهاد نام رندوم برای Worker و KV
+
+            🚫 نام‌های پیشنهادی از واژه‌های `bpb` و `worker` استفاده نمی‌کنند
+
+            📊 صفحه Result بعد از Deploy با لینک‌ها و رمزهای مهم
+
+            🔗 نمایش این موارد در History:
+
+            - Panel URL
+            - Panel Password
+            - Subscription URL
+            - Worker URL
+
+            🧹 حذف Worker + KV از Cloudflare با یک دکمه
+
+            ✅ حذف رکورد از Deploy History بعد از Cleanup موفق
+
+            🧽 دکمه Reset Local Data برای پاک‌کردن اطلاعات محلی
+
+            🌐 پشتیبانی از VPN سیستم و HTTP/HTTPS Proxy اختیاری
+
+            🧩 اجرای مستقیم با Python خام
+
+            ---
+
+            📦 فایل خروجی:
+
+            `RKh_BPB_Wizard_v1.11.zip`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
