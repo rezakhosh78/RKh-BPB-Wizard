@@ -12,7 +12,7 @@
 
 ## ✨ معرفی
 
-**RKh BPB Wizard** یک وب‌اپ لوکال برای ساخت، مدیریت و حذف Worker و KV در Cloudflare است. برنامه روی سیستم خودت اجرا می‌شود، فایل Worker داخل پروژه را Deploy می‌کند، مقدارهای لازم مثل `UUID`، `TR_PASS`، `Panel Password` و `SUB_PATH` را به‌صورت رندوم می‌سازد و نتیجه را در یک  نمایش می‌دهد.
+**RKh BPB Wizard** یک وب‌اپ لوکال برای ساخت، مدیریت و حذف Worker و KV در Cloudflare است. برنامه روی سیستم شما اجرا می‌شود، فایل Worker داخل پروژه را Deploy می‌کند، مقدارهای لازم مثل `UUID`، `TR_PASS`، `Panel Password` و `SUB_PATH` را به‌صورت رندوم می‌سازد و نتیجه را در یک  نمایش می‌دهد.
 
 این نسخه برای اجرا به `pip`، `venv`، `uvicorn`، `FastAPI` یا هیچ dependency خارجی نیاز ندارد.
 
