@@ -1,0 +1,154 @@
+name: 🚀 Build & Release RKh BPB Wizard
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 🧪 Test & package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: ✅ Compile Python app
+        run: |
+          python -m py_compile rkh_bpb_wizard.py
+
+      - name: 🧹 Reset local profiles before packaging
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          Path("rkh_bpb_profiles.json").write_text(
+              json.dumps({"profiles": [], "deployments": []}, indent=2, ensure_ascii=False),
+              encoding="utf-8"
+          )
+          print("✅ rkh_bpb_profiles.json reset for clean release artifact.")
+          PY
+
+      - name: 📦 Build portable ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            VERSION="${GITHUB_SHA::7}"
+          fi
+
+          APP_DIR="RKh_BPB_Wizard_${VERSION}"
+          DIST_DIR="dist/${APP_DIR}"
+          ZIP_FILE="dist/${APP_DIR}.zip"
+
+          rm -rf dist
+          mkdir -p dist
+
+          python - <<PY
+          import shutil
+          import zipfile
+          from pathlib import Path
+
+          app_dir = Path("${DIST_DIR}")
+          zip_path = Path("${ZIP_FILE}")
+
+          excluded_dirs = {
+              ".git",
+              ".github",
+              "dist",
+              "__pycache__",
+          }
+          excluded_files = {
+              ".DS_Store",
+              "Thumbs.db",
+          }
+
+          def should_skip(path: Path) -> bool:
+              if any(part in excluded_dirs for part in path.parts):
+                  return True
+              if path.name in excluded_files:
+                  return True
+              if path.suffix == ".pyc":
+                  return True
+              return False
+
+          app_dir.mkdir(parents=True, exist_ok=True)
+
+          for src in Path(".").iterdir():
+              if should_skip(src):
+                  continue
+              dst = app_dir / src.name
+              if src.is_dir():
+                  shutil.copytree(
+                      src,
+                      dst,
+                      ignore=lambda folder, names: [
+                          name for name in names
+                          if should_skip(Path(folder) / name)
+                      ],
+                  )
+              else:
+                  shutil.copy2(src, dst)
+
+          with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+              for path in sorted(app_dir.rglob("*")):
+                  if path.is_file():
+                      zf.write(path, path.relative_to("dist"))
+
+          print(f"✅ Created {zip_path}")
+          PY
+
+      - name: ⬆️ Upload Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RKh-BPB-Wizard-portable-zip
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: 🏷️ Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ZIP_FILE="$(ls dist/*.zip | head -n 1)"
+          NOTES_FILE="release_notes.md"
+
+          cat > "${NOTES_FILE}" <<'EOF'
+          🚀 RKh BPB Wizard portable release.
+
+          ✅ Python syntax checked  
+          📦 Clean portable ZIP generated  
+          🧹 Local profiles and deploy history reset before packaging  
+          🔐 No Cloudflare profile data is included in this release artifact  
+          EOF
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${ZIP_FILE}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${ZIP_FILE}" \
+              --title "RKh BPB Wizard ${GITHUB_REF_NAME}" \
+              --notes-file "${NOTES_FILE}"
+          fi
