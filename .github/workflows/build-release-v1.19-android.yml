@@ -1,22 +1,22 @@
-name: Build and Release Android v1.18
+name: Build and Release Android v1.19
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - "v1.18"
-      - "1.18"
+      - "v1.19"
+      - "1.19"
 
 permissions:
   contents: write
 
 env:
   APP_DIR: "android app"
-  RELEASE_TAG: "v1.18"
-  RELEASE_NAME: "RKh BPB Wizard v1.18"
-  VERSION_NAME: "1.18"
-  VERSION_CODE: "118"
-  APK_NAME: "RKh_BPB_Wizard_v1.18.apk"
+  RELEASE_TAG: "v1.19"
+  RELEASE_NAME: "RKh BPB Wizard v1.19"
+  VERSION_NAME: "1.19"
+  VERSION_CODE: "119"
+  APK_NAME: "RKh_BPB_Wizard_v1.19.apk"
 
 jobs:
   build-release:
@@ -231,7 +231,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RKh-BPB-Wizard-v1.18-APK
+          name: RKh-BPB-Wizard-v1.19-APK
           path: dist/*
           if-no-files-found: error
 
