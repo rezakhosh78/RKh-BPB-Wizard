@@ -1,0 +1,250 @@
+name: Build and Release Android v1.18
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v1.18"
+      - "1.18"
+
+permissions:
+  contents: write
+
+env:
+  APP_DIR: "android app"
+  RELEASE_TAG: "v1.18"
+  RELEASE_NAME: "RKh BPB Wizard v1.18"
+  VERSION_NAME: "1.18"
+  VERSION_CODE: "118"
+  APK_NAME: "RKh_BPB_Wizard_v1.18.apk"
+
+jobs:
+  build-release:
+    name: Build APK and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Verify Android project path
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "$APP_DIR" ]; then
+            echo "Android project directory not found: $APP_DIR"
+            echo "Repository files:"
+            find . -maxdepth 3 -type f | sort
+            exit 1
+          fi
+          if [ ! -f "$APP_DIR/settings.gradle" ] && [ ! -f "$APP_DIR/settings.gradle.kts" ]; then
+            echo "settings.gradle/settings.gradle.kts not found inside: $APP_DIR"
+            exit 1
+          fi
+
+      - name: Patch versionName and versionCode
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          version_name = "${{ env.VERSION_NAME }}"
+          version_code = "${{ env.VERSION_CODE }}"
+          candidates = [Path("app/build.gradle"), Path("app/build.gradle.kts")]
+          changed = False
+          for p in candidates:
+              if not p.exists():
+                  continue
+              s = p.read_text(encoding="utf-8")
+              old = s
+              s = re.sub(r"versionCode\s+\d+", f"versionCode {version_code}", s)
+              s = re.sub(r"versionCode\s*=\s*\d+", f"versionCode = {version_code}", s)
+              s = re.sub(r"versionName\s+['\"][^'\"]+['\"]", f"versionName '{version_name}'", s)
+              s = re.sub(r"versionName\s*=\s*['\"][^'\"]+['\"]", f"versionName = \"{version_name}\"", s)
+              if s != old:
+                  p.write_text(s, encoding="utf-8")
+                  changed = True
+                  print(f"Patched {p} to versionName={version_name}, versionCode={version_code}")
+          if not changed:
+              print("No versionName/versionCode entry was patched. Continuing...")
+          PY
+
+      - name: Build release APK
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon clean :app:assembleRelease
+          else
+            gradle --no-daemon clean :app:assembleRelease
+          fi
+
+      - name: Collect and optionally sign APK
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist
+
+          SIGNED_APK="$(find app/build/outputs/apk/release -type f -name "*.apk" ! -name "*unsigned*.apk" | head -n 1 || true)"
+          UNSIGNED_APK="$(find app/build/outputs/apk/release -type f -name "*unsigned*.apk" | head -n 1 || true)"
+
+          if [ -n "$SIGNED_APK" ]; then
+            cp "$SIGNED_APK" "../dist/${APK_NAME}"
+            echo "Using Gradle-generated signed APK: $SIGNED_APK"
+          elif [ -n "$UNSIGNED_APK" ]; then
+            if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ] && [ -n "${ANDROID_KEY_PASSWORD:-}" ]; then
+              echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+              BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)"
+              "$BUILD_TOOLS/zipalign" -p -f 4 "$UNSIGNED_APK" ../dist/aligned-release.apk
+              "$BUILD_TOOLS/apksigner" sign \
+                --ks release.keystore \
+                --ks-key-alias "$ANDROID_KEY_ALIAS" \
+                --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
+                --key-pass "pass:$ANDROID_KEY_PASSWORD" \
+                --out "../dist/${APK_NAME}" \
+                ../dist/aligned-release.apk
+              "$BUILD_TOOLS/apksigner" verify --verbose "../dist/${APK_NAME}"
+              rm -f release.keystore ../dist/aligned-release.apk
+              echo "Signed unsigned APK with GitHub Secrets."
+            else
+              cp "$UNSIGNED_APK" "../dist/${APK_NAME%.apk}-unsigned.apk"
+              echo "WARNING: No signing secrets found. Uploaded unsigned APK instead."
+              echo "To create an installable signed APK, add these repo secrets:"
+              echo "ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD"
+            fi
+          else
+            echo "No release APK found. Output tree:"
+            find app/build/outputs -type f | sort || true
+            exit 1
+          fi
+
+          ls -lah ../dist
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > release-notes.md <<'EOF'
+          # 🚀 تغییرات نسخه جدید نسبت به v1.11
+
+          این نسخه یک آپدیت بزرگ برای **RKh BPB Wizard Android** است و نسبت به نسخه `v1.11` هم از نظر ظاهر، هم تجربه کاربری، و هم مدیریت پنل‌ها تغییرات زیادی دارد.
+
+          ## ✨ امکانات جدید
+
+          ### 🎨 طراحی جدید
+          - شفاف‌تر شدن کارت‌ها و صفحه اصلی
+          - هدر ثابت در بالای برنامه
+          - اصلاح فاصله هدر از Notification Bar گوشی
+          - بهبود ظاهر دکمه‌ها، کارت‌ها و بخش‌های اطلاعاتی
+
+          ### 🏠 صفحه اصلی جدید
+          - اضافه شدن صفحه اصلی با دو گزینه اصلی:
+            - **Import BPB Panel**
+            - **Create BPB Panel**
+          - جداسازی کامل بخش ساخت پنل از بخش ایمپورت پنل‌های قبلی
+
+          ### 📥 Import BPB Panel
+          - امکان وارد کردن پنل‌های BPB موجود از Cloudflare
+          - دریافت Cloudflare Email و Global API Key
+          - اسکن اکانت‌های Cloudflare
+          - پیدا کردن Workerهای BPB موجود
+          - اضافه کردن اطلاعات پنل پیدا شده به عنوان پروفایل جدید
+          - اضافه شدن خودکار اطلاعات پنل به Deploy History
+          - رفع کرش بعد از Import موفق
+
+          ### 🛠 Create BPB Panel مرحله‌ای
+          - تبدیل روال ساخت پنل به حالت مرحله‌ای
+          - اضافه شدن دکمه‌های **Next** و **Back**
+          - ساختار جدید:
+            - Step 1: Profile
+            - Step 2: Deploy
+            - Step 3: Deploy History
+          - ذخیره خودکار اطلاعات پروفایل با زدن دکمه Next
+          - اضافه شدن دکمه برگشت به صفحه اصلی در بخش Create BPB
+
+          ### 👤 مدیریت بهتر پروفایل‌ها
+          - اضافه شدن منوی همبرگری در هدر
+          - نمایش فقط نام پروفایل‌ها در منوی همبرگری
+          - باز شدن صفحه جزئیات هر پروفایل با کلیک روی نام آن
+          - نمایش Email و Deploy History داخل هر پروفایل
+          - حذف نمایش‌های اضافی مثل Auth و Open Profile از صفحه جزئیات پروفایل
+
+          ### 📊 Deploy History جدید
+          - بازطراحی کامل Deploy History
+          - نمایش هر مقدار در یک حباب جدا
+          - اضافه شدن دکمه Copy برای اطلاعات مهم مثل:
+            - Panel URL
+            - Panel Password
+            - Subscription URL
+            - Worker URL
+            - KV ID
+          - مرتب‌تر شدن نمایش اطلاعات پنل
+
+          ### 🌐 Open Panel داخلی
+          - اضافه شدن دکمه Open Panel
+          - باز شدن پنل داخل خود برنامه با WebView داخلی
+          - دیگر نیازی به کپی کردن Panel URL و باز کردن مرورگر نیست
+          - نمایش Panel URL و Panel Password بالای صفحه پنل
+          - اضافه شدن گزینه Open in Browser برای حالت جایگزین
+
+          ### ☁️ Cloudflare Inventory
+          - نمایش Workers و KVهای موجود روی اکانت Cloudflare
+          - امکان حذف Workerهای دیگر از داخل برنامه
+          - امکان حذف KVهای دیگر از داخل برنامه
+          - اصلاح مشکل سیاه بودن صفحه Cloudflare Inventory و ناخوانا بودن نوشته‌ها
+
+          ### 🔐 بهبود API Token / Global Key
+          - حالت پیش‌فرض ورود روی Global API Key + Email
+          - اضافه شدن Manual Account ID برای حالتی که API Token نتواند لیست اکانت‌ها را بگیرد
+          - بهبود روند پیدا کردن Worker و KV روی Cloudflare
+
+          ### 🧭 بهبود ناوبری
+          - اضافه شدن دکمه Main برای برگشت به صفحه اصلی
+          - رفع مشکل نبود دکمه برگشت در بخش Create BPB
+          - رفع کرش بعد از Import پنل
+          - بهبود رفتار صفحه‌ها بعد از Deploy و Import
+          EOF
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RKh-BPB-Wizard-v1.18-APK
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          body_path: release-notes.md
+          target_commitish: main
+          make_latest: true
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+          files: |
+            dist/*
