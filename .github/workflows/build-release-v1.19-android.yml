@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 env:
-  APP_DIR: "."
+  APP_DIR: "android app"
   RELEASE_TAG: "v1.19"
   RELEASE_NAME: "RKh BPB Wizard v1.19"
   VERSION_NAME: "1.19"
@@ -107,31 +107,31 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/dist"
+          mkdir -p ../dist
 
           SIGNED_APK="$(find app/build/outputs/apk/release -type f -name "*.apk" ! -name "*unsigned*.apk" | head -n 1 || true)"
           UNSIGNED_APK="$(find app/build/outputs/apk/release -type f -name "*unsigned*.apk" | head -n 1 || true)"
 
           if [ -n "$SIGNED_APK" ]; then
-            cp "$SIGNED_APK" "$GITHUB_WORKSPACE/dist/${APK_NAME}"
+            cp "$SIGNED_APK" "../dist/${APK_NAME}"
             echo "Using Gradle-generated signed APK: $SIGNED_APK"
           elif [ -n "$UNSIGNED_APK" ]; then
             if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ] && [ -n "${ANDROID_KEY_PASSWORD:-}" ]; then
               echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
               BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)"
-              "$BUILD_TOOLS/zipalign" -p -f 4 "$UNSIGNED_APK" "$GITHUB_WORKSPACE/dist/aligned-release.apk"
+              "$BUILD_TOOLS/zipalign" -p -f 4 "$UNSIGNED_APK" ../dist/aligned-release.apk
               "$BUILD_TOOLS/apksigner" sign \
                 --ks release.keystore \
                 --ks-key-alias "$ANDROID_KEY_ALIAS" \
                 --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
                 --key-pass "pass:$ANDROID_KEY_PASSWORD" \
-                --out "$GITHUB_WORKSPACE/dist/${APK_NAME}" \
-                "$GITHUB_WORKSPACE/dist/aligned-release.apk"
-              "$BUILD_TOOLS/apksigner" verify --verbose "$GITHUB_WORKSPACE/dist/${APK_NAME}"
-              rm -f release.keystore "$GITHUB_WORKSPACE/dist/aligned-release.apk"
+                --out "../dist/${APK_NAME}" \
+                ../dist/aligned-release.apk
+              "$BUILD_TOOLS/apksigner" verify --verbose "../dist/${APK_NAME}"
+              rm -f release.keystore ../dist/aligned-release.apk
               echo "Signed unsigned APK with GitHub Secrets."
             else
-              cp "$UNSIGNED_APK" "$GITHUB_WORKSPACE/dist/${APK_NAME%.apk}-unsigned.apk"
+              cp "$UNSIGNED_APK" "../dist/${APK_NAME%.apk}-unsigned.apk"
               echo "WARNING: No signing secrets found. Uploaded unsigned APK instead."
               echo "To create an installable signed APK, add these repo secrets:"
               echo "ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD"
@@ -142,7 +142,7 @@ jobs:
             exit 1
           fi
 
-          ls -lah "$GITHUB_WORKSPACE/dist"
+          ls -lah ../dist
 
       - name: Write release notes
         shell: bash
